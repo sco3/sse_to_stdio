@@ -66,6 +66,7 @@ async def bridge(sse_url: str):
 
 
 if __name__ == "__main__":
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.basicConfig(level=logging.INFO, stream=sys.stderr, format='%(message)s')
     if len(sys.argv) < 2:
         logging.error("Usage: uv run mcp-bridge.py <sse_url>")
