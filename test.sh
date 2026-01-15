@@ -25,6 +25,18 @@ CALL='{
    }}
 }'
 
+CALL1='{
+  "jsonrpc": "2.0",
+  "id": 4,
+  "method": "tools/call",
+  "params": {
+    "name": "calculateSum",
+    "arguments": {
+          "first": 40,
+          "second": 3
+   }}
+}'
+
 #echo $CALL | yq -o json -M -I 0
 
 (
@@ -35,5 +47,7 @@ CALL='{
   echo "$LIST"
   sleep 0.1
   echo "$(echo $CALL | yq -o json -M -I 0 )"
+  sleep 0.1
+  echo "$(echo $CALL1 | yq -o json -M -I 0 )"
   sleep 0.1
 ) | $EXE
