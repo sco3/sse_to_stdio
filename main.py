@@ -1,75 +1,89 @@
-# /// script
-# dependencies = [
-#   "httpx",
-#   "mcp",
-# ]
-# ///
-
 import asyncio
-import json
 import logging
 import sys
+import threading
 from urllib.parse import urlparse
-
 import httpx
 
+# Thread-safe queue for stdin lines
+input_queue = asyncio.Queue()
 
-async def read_sse(response: httpx.Response, sse_url: str, post_url_ref: list):
+def stdin_thread_worker(loop):
+    """
+    Standard synchronous reading in a dedicated thread.
+    This is the only 100% reliable way to read stdin line-by-line 
+    without blocking the event loop or losing data.
+    """
+    while True:
+        line = sys.stdin.readline()
+        if not line:
+            # Signal EOF to the main loop
+            loop.call_soon_threadsafe(input_queue.put_nowait, None)
+            break
+        # Put the line into the async queue
+        loop.call_soon_threadsafe(input_queue.put_nowait, line)
+
+async def read_sse(response, sse_url, post_url_event, state):
+    """Processes SSE events and sends them to stdout immediately."""
     async for line in response.aiter_lines():
         if line.startswith("data: "):
             data = line[6:].strip()
             if data.startswith("/"):
-                # Use the origin of the sse_url + the path provided
+                # Discovery of the POST endpoint
                 parsed = urlparse(sse_url)
-                post_url = f"{parsed.scheme}://{parsed.netloc}{data}"
-                post_url_ref[0] = post_url
-                logging.info(f"Detected POST endpoint: {post_url}")
+                state['post_url'] = f"{parsed.scheme}://{parsed.netloc}{data}"
+                post_url_event.set()
+                logging.info(f"Connected to MCP SSE. POST endpoint discovered.")
             else:
-                print(data, flush=True)
-
+                # Direct output to stdout with immediate flush
+                sys.stdout.write(data + "\n")
+                sys.stdout.flush()
 
 async def bridge(sse_url: str):
-    async with httpx.AsyncClient() as client:
-        # 1. Connect to the SSE endpoint to get the message relay URL
-        async with client.stream("GET", sse_url) as response:
-            # Most MCP SSE servers send the endpoint URL in a specific header
-            # or as the first 'endpoint' event.
-            post_url_ref = [None]
+    state = {'post_url': None}
+    post_url_event = asyncio.Event()
+    loop = asyncio.get_running_loop()
 
-            # Start a background task to read from SSE and print to stdout
-            sse_task = asyncio.create_task(read_sse(response, sse_url, post_url_ref))
+    # Start the stdin worker thread
+    threading.Thread(target=stdin_thread_worker, args=(loop,), daemon=True).start()
 
-            # 2. Read from stdin and POST to the SSE server
-            while True:
-                line = await asyncio.get_event_loop().run_in_executor(
-                    None, sys.stdin.readline
+    async with httpx.AsyncClient(timeout=None) as client:
+        try:
+            async with client.stream("GET", sse_url) as response:
+                # Background task for SSE -> Stdout
+                sse_task = asyncio.create_task(
+                    read_sse(response, sse_url, post_url_event, state)
                 )
-                if not line:
-                    break
 
-                # Wait until we have the POST URL from the SSE stream
-                while not post_url_ref[0]:
-                    await asyncio.sleep(0.1)
+                # Main loop for Stdin -> SSE POST
+                while True:
+                    line = await input_queue.get()
+                    if line is None:  # EOF reached
+                        break
+                    
+                    # Wait for the POST URL if it's not yet available
+                    await post_url_event.wait()
+                    
+                    try:
+                        # Forward JSON-RPC request from stdin to the MCP server
+                        await client.post(
+                            state['post_url'],
+                            content=line.strip(),
+                            headers={"Content-Type": "application/json"},
+                        )
+                    except Exception as e:
+                        logging.error(f"Failed to POST to MCP: {e}")
 
-                post_url = post_url_ref[0]
-                try:
-                    # Forward the JSON-RPC message
-                    await client.post(
-                        post_url,
-                        content=line.strip(),
-                        headers={"Content-Type": "application/json"},
-                    )
-                except Exception as e:
-                    logging.error(f"Error forwarding to SSE: {e}")
-
-            sse_task.cancel()
-
+                sse_task.cancel()
+        except Exception as e:
+            logging.error(f"Bridge connection error: {e}")
 
 if __name__ == "__main__":
-    logging.getLogger("httpx").setLevel(logging.WARNING)
+    # Log to stderr only! Stdout is reserved for JSON-RPC
     logging.basicConfig(level=logging.INFO, stream=sys.stderr, format='%(message)s')
+    
     if len(sys.argv) < 2:
-        logging.error("Usage: uv run mcp-bridge.py <sse_url>")
+        logging.error("Usage: python bridge.py <sse_url>")
         sys.exit(1)
 
     try:
