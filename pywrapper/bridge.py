@@ -3,8 +3,8 @@ import logging
 import threading
 import httpx
 
-from .sse_client import read_sse
-from .stdin_reader import stdin_thread_worker, input_queue
+from pywrapper.sse_client import read_sse
+from pywrapper.stdin_reader import stdin_thread_worker, input_queue
 
 async def bridge(sse_url: str):
     state = {'post_url': None}

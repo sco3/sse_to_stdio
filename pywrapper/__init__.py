@@ -1,6 +1,6 @@
-from .bridge import bridge
-from .sse_client import read_sse
-from .stdin_reader import stdin_thread_worker, input_queue
+from pywrapper.bridge import bridge
+from pywrapper.sse_client import read_sse
+from pywrapper.stdin_reader import stdin_thread_worker, input_queue
 
 __all__ = [
     'bridge',
