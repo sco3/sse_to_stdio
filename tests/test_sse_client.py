@@ -27,7 +27,7 @@ async def test_read_sse():
 
     # Mock event and state
     post_url_event = asyncio.Event()
-    state = {"post_url": None}
+    state: dict[str, str | None] = {"post_url": None}
 
     # Mock stdout
     mock_stdout = io.StringIO()
