@@ -1,13 +1,15 @@
 import asyncio
 import sys
+from typing import Optional
 
 # Thread-safe queue for stdin lines
-input_queue = asyncio.Queue()
+input_queue: asyncio.Queue[Optional[str]] = asyncio.Queue()
 
-def stdin_thread_worker(loop):
+
+def stdin_thread_worker(loop: asyncio.AbstractEventLoop) -> None:
     """
     Standard synchronous reading in a dedicated thread.
-    This is the only 100% reliable way to read stdin line-by-line 
+    This is the only 100% reliable way to read stdin line-by-line
     without blocking the event loop or losing data.
     """
     while True:

@@ -1,13 +1,22 @@
 import asyncio
 import logging
 import sys
+from typing import Dict, Optional
 from urllib.parse import urlparse
 
-async def read_sse(response, sse_url, post_url_event, state):
+import httpx
+
+
+async def read_sse(
+    response: httpx.Response,
+    sse_url: str,
+    post_url_event: asyncio.Event,
+    state: Dict[str, Optional[str]],
+) -> None:
     """Processes SSE events and sends them to stdout immediately."""
     async for line in response.aiter_lines():
         if line.startswith("data: "):
-            data = line[6:].strip()
+            data: str = line[6:].strip()
             if data.startswith("/"):
                 # Discovery of the POST endpoint
                 parsed = urlparse(sse_url)
